@@ -6,6 +6,8 @@ The emphasis is on **onboarding, template management, GDPR and CRM integration**
 
 **▶ Live demo (no install): https://rafaym1.github.io/BPO-Client-Onboarding-Hub-for-WhatsApp-Business-API/**
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://dashboard.render.com/blueprint/new?repo=https://github.com/rafaym1/BPO-Client-Onboarding-Hub-for-WhatsApp-Business-API)
+
 > **Mock-first.** With no credentials in `.env`, WhatsApp, HubSpot and Jira all run against a local mock that behaves like the real thing (including Meta-shaped webhooks fed through the *real* webhook handler). Add a credential and that integration flips to live automatically. See [Mock vs live](#mock-vs-live).
 
 | Stack | |
@@ -80,6 +82,19 @@ GitHub Pages only hosts static files, so it cannot run Flask, Postgres or Celery
 cd frontend && npm ci
 NEXT_PUBLIC_BASE_PATH=/BPO-Client-Onboarding-Hub-for-WhatsApp-Business-API npm run build:demo   # output in frontend/out
 ```
+
+---
+
+## Deploy the real stack to Render
+
+`render.yaml` is a Blueprint that provisions everything on Render's free plans: **Postgres**, **Redis** (Key Value), the **Flask API + Celery worker/beat** (`bpo-api`, one Docker container running `backend/render-start.sh`) and the **Next.js dashboard** (`bpo-hub`), which proxies `/api/*` to the API over Render's private network (no CORS or API URL to configure).
+
+1. Click the **Deploy to Render** button above (or Dashboard → *New* → *Blueprint* → pick this repo) and approve the plan. First build takes ~5–10 min.
+2. Open **`bpo-hub`** → its `onrender.com` URL. The demo client Berlin Dental Clinic is seeded automatically (`SEED_DEMO`, `SEED_ARGS` in `render.yaml`).
+3. Integrations start in **mock mode**. To go live, add env vars on `bpo-api` (Dashboard → *Environment*): `WHATSAPP_TOKEN`, `WHATSAPP_APP_SECRET`, `PHONE_NUMBER_ID`, `WABA_ID`, plus optionally `HUBSPOT_TOKEN` and `JIRA_EMAIL` / `JIRA_API_TOKEN` / `JIRA_DOMAIN`. Each flips to live as soon as its credentials are present.
+4. **Real WhatsApp webhooks** need no ngrok here: in Meta → WhatsApp → Configuration set the callback URL to `https://<bpo-api>.onrender.com/webhooks/whatsapp` and the verify token to the generated `VERIFY_TOKEN` (Render → `bpo-api` → *Environment*). Subscribe to `messages` and `message_template_status_update`.
+
+**Free-tier caveats:** services sleep after ~15 min idle (the first request afterwards takes up to a minute to wake both `bpo-hub` and `bpo-api`; open it a few minutes before a client call), the free Postgres database expires after 30 days, and because sleeping stops Celery beat, the hourly reminder sweep only runs while the API is awake (the *Run reminder sweep now* button always works). Paid plans remove all three; on a paid plan split the worker into its own `type: worker` service. There is no authentication on the API or dashboard, so treat the URL as semi-public and turn `DEV_TOOLS` off for anything real.
 
 ---
 
