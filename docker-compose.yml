@@ -1,0 +1,91 @@
+name: bpo-onboarding-hub
+
+x-backend: &backend
+  build: ./backend
+  env_file: .env
+  environment: &backend-env
+    DATABASE_URL: postgresql://bpo:bpo@db:5432/bpo
+    REDIS_URL: redis://redis:6379/0
+    MOCK_DATA_DIR: /data/mock
+  volumes:
+    - ./backend:/app          # live code reload for iteration
+    - mockdata:/data/mock     # web + worker share the mock integration log
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: bpo
+      POSTGRES_PASSWORD: bpo
+      POSTGRES_DB: bpo
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bpo -d bpo"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  web:
+    <<: *backend
+    command: >
+      sh -c "alembic upgrade head &&
+             if [ \"$$SEED_DEMO\" = \"true\" ]; then python -m app.seed; fi &&
+             gunicorn -b 0.0.0.0:5000 -w 2 --reload --access-logfile - wsgi:app"
+    ports:
+      - "5000:5000"
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/api/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  worker:   # Celery worker + embedded beat (hourly 24h-reminder sweep)
+    <<: *backend
+    command: celery -A app.celery_app.celery worker -B -l info -s /tmp/celerybeat-schedule
+    depends_on:
+      web: { condition: service_healthy }   # web has run the migrations by then
+
+  frontend:
+    build: ./frontend
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:5000}
+      WATCHPACK_POLLING: "true"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    ports:
+      - "3000:3000"
+    depends_on:
+      - web
+
+  ngrok:    # optional: docker compose --profile ngrok up  ->  inspect the https URL at http://localhost:4040
+    image: ngrok/ngrok:latest
+    profiles: ["ngrok"]
+    command: http web:5000
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:-}
+    ports:
+      - "4040:4040"
+    depends_on:
+      - web
+
+volumes:
+  pgdata:
+  mockdata:
