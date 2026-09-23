@@ -1,0 +1,69 @@
+# Render Blueprint: one click deploys the whole stack (all on free plans; see README "Deploy to Render").
+# Dashboard -> New -> Blueprint -> pick this repo.
+databases:
+  - name: bpo-db
+    plan: free
+    databaseName: bpo
+    user: bpo
+
+services:
+  # Celery broker (internal only)
+  - type: keyvalue
+    name: bpo-redis
+    plan: free
+    maxmemoryPolicy: noeviction
+    ipAllowList: []
+
+  # Flask API + Celery worker/beat (one container to fit the free tier)
+  - type: web
+    name: bpo-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    dockerCommand: sh ./render-start.sh
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: bpo-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: bpo-redis
+          property: connectionString
+      - key: VERIFY_TOKEN          # paste this value into Meta's webhook config
+        generateValue: true
+      - key: MOCK_DATA_DIR
+        value: /tmp/mock
+      - key: DEV_TOOLS
+        value: "true"
+      - key: SEED_DEMO
+        value: "true"
+      - key: SEED_ARGS
+        value: --advance 4
+      - key: CORS_ORIGINS
+        value: "*"
+      # Add these in the dashboard later to switch integrations from mock to live:
+      #   WHATSAPP_TOKEN, WHATSAPP_APP_SECRET, PHONE_NUMBER_ID, WABA_ID,
+      #   HUBSPOT_TOKEN, JIRA_EMAIL, JIRA_API_TOKEN, JIRA_DOMAIN
+
+  # Next.js dashboard. /api/* is proxied to bpo-api over Render's private network (no CORS, no URL to bake in).
+  - type: web
+    name: bpo-hub
+    runtime: node
+    plan: free
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    startCommand: npx next start -H 0.0.0.0 -p $PORT
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NEXT_PUBLIC_API_URL
+        value: "/"
+      - key: API_HOSTPORT
+        fromService:
+          type: web
+          name: bpo-api
+          property: hostport

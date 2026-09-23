@@ -10,6 +10,13 @@ const nextConfig = {
     basePath: process.env.NEXT_PUBLIC_BASE_PATH || "",
     images: { unoptimized: true },
   }),
+  // Hosted setup (Render): the browser calls same-origin /api/*, Next forwards it to the API service.
+  ...(!demo && (process.env.API_HOSTPORT || process.env.API_INTERNAL_URL) && {
+    async rewrites() {
+      const target = process.env.API_HOSTPORT ? `http://${process.env.API_HOSTPORT}` : process.env.API_INTERNAL_URL;
+      return [{ source: "/api/:path*", destination: `${target}/api/:path*` }];
+    },
+  }),
 };
 
 export default nextConfig;

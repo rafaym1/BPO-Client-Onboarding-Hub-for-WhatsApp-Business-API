@@ -6,7 +6,9 @@ import {
 import { demoApi } from "./demo-backend";
 export * from "./types";
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000";
+// "/" = same origin (hosted setup: Next proxies /api/* to the backend, see next.config.mjs). Unset = local backend.
+const rawApiUrl = process.env.NEXT_PUBLIC_API_URL;
+export const API_URL = rawApiUrl === undefined ? "http://localhost:5000" : rawApiUrl === "/" ? "" : rawApiUrl;
 /** Static demo build (GitHub Pages): no server, an in-browser mock backend answers instead. */
 export const DEMO = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
@@ -21,7 +23,7 @@ async function request<T>(path: string, init?: RequestInit & { json?: unknown })
       cache: "no-store",
     });
   } catch {
-    throw new ApiError(`Cannot reach the API at ${API_URL}. Is the backend running?`, 0, "network_error");
+    throw new ApiError(`Cannot reach the API${API_URL ? ` at ${API_URL}` : ""}. Is the backend running (or waking up: free hosting sleeps when idle)?`, 0, "network_error");
   }
   if (res.status === 204) return undefined as T;
   const data = await res.json().catch(() => null);
